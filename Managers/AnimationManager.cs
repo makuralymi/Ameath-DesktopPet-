@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.IO;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
 using Ameath.DesktopPet.Core;
-using SkiaSharp;
 
 namespace Ameath.DesktopPet.Managers;
 
@@ -24,11 +24,11 @@ public sealed class AnimationManager
 
     public void LoadAssets()
     {
-        _paths[PetState.Idle] = _assetManager.GetAssetPaths("hu.webp", "nothing.webp", "cool.webp", "cute.webp");
-        _paths[PetState.Wander] = _assetManager.GetAssetPaths("fly.webp");
-        _paths[PetState.Interact] = _assetManager.GetAssetPaths("jump.webp", "jump2.webp");
-        _paths[PetState.Drag] = _assetManager.GetAssetPaths("happy.webp", "happy2.webp");
-        _paths[PetState.Sleep] = _assetManager.GetAssetPaths("cool.webp", "cute.webp");
+        _paths[PetState.Idle] = _assetManager.GetAssetPaths("hu.gif", "nothing.gif", "cool.gif", "cute.gif");
+        _paths[PetState.Wander] = _assetManager.GetAssetPaths("fly.gif");
+        _paths[PetState.Interact] = _assetManager.GetAssetPaths("jump.gif", "jump2.gif");
+        _paths[PetState.Drag] = _assetManager.GetAssetPaths("happy.gif", "happy2.gif");
+        _paths[PetState.Sleep] = _assetManager.GetAssetPaths("cool.gif", "cute.gif");
 
         InitializeReferenceSize();
     }
@@ -74,34 +74,21 @@ public sealed class AnimationManager
 
     private AnimatedImage LoadAnimation(string path)
     {
-        using var stream = File.OpenRead(path);
-        using var codec = SKCodec.Create(stream);
+        using var image = Image.FromFile(path);
         var scaleToReference = ShouldScaleToReference(path);
-        if (codec == null)
-        {
-            return LoadSingleFrame(path, scaleToReference);
-        }
+        var dimension = new FrameDimension(image.FrameDimensionsList[0]);
+        var frameCount = image.GetFrameCount(dimension);
 
-        var info = codec.Info;
-        var frameCount = codec.FrameCount;
-        if (frameCount <= 1)
-        {
-            return LoadSingleFrame(path, scaleToReference);
-        }
-
-        var frameInfos = codec.FrameInfo;
         var frames = new List<Image>(frameCount);
         var durations = new List<int>(frameCount);
+        var delays = GetFrameDelays(image, frameCount);
 
         for (var i = 0; i < frameCount; i++)
         {
-            using var bitmap = new SKBitmap(info);
-            var options = new SKCodecOptions(i);
-            codec.GetPixels(info, bitmap.GetPixels(), options);
-            frames.Add(ToImage(bitmap));
-
-            var duration = frameInfos[i].Duration;
-            durations.Add(duration > 0 ? duration : 100);
+            image.SelectActiveFrame(dimension, i);
+            var frame = new Bitmap(image);
+            frames.Add(frame);
+            durations.Add(delays[i]);
         }
 
         if (scaleToReference && _referenceSize.HasValue)
@@ -112,33 +99,10 @@ public sealed class AnimationManager
         return new AnimatedImage(frames, durations);
     }
 
-    private AnimatedImage LoadSingleFrame(string path, bool scaleToReference)
-    {
-        using var bitmap = SKBitmap.Decode(path);
-        var frame = ToImage(bitmap);
-        if (scaleToReference && _referenceSize.HasValue)
-        {
-            var resized = ResizeFrame(frame, _referenceSize.Value);
-            frame.Dispose();
-            frame = resized;
-        }
-
-        return new AnimatedImage(new List<Image> { frame }, new List<int> { 1000 });
-    }
-
-    private static Image ToImage(SKBitmap bitmap)
-    {
-        using var image = SKImage.FromBitmap(bitmap);
-        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-        using var stream = new MemoryStream(data.ToArray());
-        using var temp = Image.FromStream(stream);
-        return new Bitmap(temp);
-    }
-
     private void InitializeReferenceSize()
     {
         _referenceSize = null;
-        var referenceAssets = _assetManager.GetAssetPaths("hu.webp", "nothing.webp");
+        var referenceAssets = _assetManager.GetAssetPaths("hu.gif", "nothing.gif");
         if (referenceAssets.Count == 0)
         {
             return;
@@ -153,8 +117,8 @@ public sealed class AnimationManager
     private static bool ShouldScaleToReference(string path)
     {
         var fileName = Path.GetFileName(path);
-        return fileName.Equals("cool.webp", StringComparison.OrdinalIgnoreCase)
-            || fileName.Equals("cute.webp", StringComparison.OrdinalIgnoreCase);
+        return fileName.Equals("cool.gif", StringComparison.OrdinalIgnoreCase)
+            || fileName.Equals("cute.gif", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ResizeFrames(List<Image> frames, Size targetSize)
@@ -175,5 +139,32 @@ public sealed class AnimationManager
         graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
         graphics.DrawImage(source, new Rectangle(Point.Empty, targetSize));
         return bitmap;
+    }
+
+    private static List<int> GetFrameDelays(Image image, int frameCount)
+    {
+        const int defaultDelay = 100;
+        var delays = new List<int>(frameCount);
+        var item = image.PropertyItems.Length == 0
+            ? null
+            : Array.Find(image.PropertyItems, property => property.Id == 0x5100);
+
+        if (item == null || item.Value.Length < 4)
+        {
+            for (var i = 0; i < frameCount; i++)
+            {
+                delays.Add(defaultDelay);
+            }
+
+            return delays;
+        }
+
+        for (var i = 0; i < frameCount; i++)
+        {
+            var delay = BitConverter.ToInt32(item.Value, i * 4) * 10;
+            delays.Add(delay > 0 ? delay : defaultDelay);
+        }
+
+        return delays;
     }
 }

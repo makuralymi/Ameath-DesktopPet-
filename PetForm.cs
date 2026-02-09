@@ -66,7 +66,7 @@ public sealed class PetForm : Form
         var assetManager = new AssetManager(assetRoot);
         _animationManager = new AnimationManager(assetManager);
         _animationManager.LoadAssets();
-        _ = Task.Run(() => _animationManager.PreloadAssets("cool.webp", "cute.webp"));
+        _ = Task.Run(() => _animationManager.PreloadAssets("cool.gif", "cute.gif"));
 
         _animationTimer = new System.Windows.Forms.Timer();
         _animationTimer.Tick += (_, _) => AdvanceFrame();
